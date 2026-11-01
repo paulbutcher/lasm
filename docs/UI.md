@@ -377,6 +377,24 @@ theorem add_appends (m : Model) (h : clean m.field ≠ "") :
 `Lasm.UI.render` lets you check a view's HTML in a test, and the DOM model
 (`Lasm.UI.Model`) lets you state facts about what the browser shows.
 
+**Content models.** `html!` checks element names, not what an element may
+contain, so a view can be invalid HTML: a `<div>` in a `<p>`, text in a `<ul>`.
+The browser's parser repairs such markup, so a server-rendered page then
+hydrates against a different DOM than its view. The Lake package
+[packages/lasm-ui-check](../packages/lasm-ui-check) checks views against the
+content models of HTML, SVG 2 and MathML Core with
+[lean-html-model](https://github.com/paulbutcher/lean-html-model):
+
+```lean
+import LasmUICheck
+
+#guard (validate (view initialModel)).isOk
+-- validate (html! <p><div>x</div></p>) fails with
+--   <p>[1] > <div>[1]: <div> is not allowed here
+```
+
+CI checks the examples' views with it (`test/ui/content-model`).
+
 ## What is proved
 
 [library/Lasm/UI/Proofs.lean](../library/Lasm/UI/Proofs.lean) and

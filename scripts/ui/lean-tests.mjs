@@ -7,12 +7,15 @@
 //   - test/ui/Fixtures.lean: the applier test's patch fixtures must be current
 //     (--fixtures rewrites test/fixtures/ui/patches.json);
 //   - examples/ui/* and templates/fullstack: they elaborate (TodoMVC's and the
-//     template's proofs included), with no `sorry`.
+//     template's proofs included), with no `sorry`;
+//   - packages/lasm-ui-check (Lake, with lean-html-model): test/ui/ContentModelTest.lean,
+//     and test/ui/content-model/<example>.lean: the examples' views satisfy the
+//     HTML content model.
 //   node scripts/ui/lean-tests.mjs [--fixtures]
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { provisionLean } from '../../src/managed-lean.mjs';
 
@@ -67,21 +70,37 @@ try {
     if (readFileSync(file, 'utf8') !== fixtures) throw new Error('test/fixtures/ui/patches.json is stale: run node scripts/ui/lean-tests.mjs --fixtures');
     return `${JSON.parse(fixtures).length} scenarios`;
   });
+  // The content-model checker is a Lake package (its dependencies are fetched
+  // from GitHub), built with this Lean, whose library provides Lasm.UI.Html.
+  const checker = join(root, 'packages/lasm-ui-check');
+  const lake = args => execFileSync(join(lean.prefix, 'bin', process.platform === 'win32' ? 'lake.exe' : 'lake'), args,
+    { cwd: checker, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 1_800_000 });
+  let checkerPath;
+  check('content-model checker builds (packages/lasm-ui-check)', () => {
+    lake(['build']);
+    checkerPath = lake(['env', process.execPath, '-e', 'process.stdout.write(process.env.LEAN_PATH)']).split(delimiter)
+      .filter(path => path && !path.startsWith(lean.prefix));
+    return '';
+  });
+  if (checkerPath) check('content models (test/ui/ContentModelTest.lean)', () => { run(['test/ui/ContentModelTest.lean'], checkerPath); return ''; });
   // Examples: each directory's modules, Main last (others in dependency order by name list).
   const examples = join(root, 'examples/ui');
   for (const name of readdirSync(examples).sort()) {
     const dir = join(examples, name);
     if (!existsSync(join(dir, 'Main.lean'))) continue;
+    const out = join(work, 'examples', name);
     check(`examples/ui/${name} elaborates`, () => {
-      const out = join(work, 'examples', name);
       mkdirSync(out, { recursive: true });
       const modules = readdirSync(dir).filter(f => f.endsWith('.lean') && f !== 'Main.lean').map(f => f.slice(0, -5));
       let log = '';
       for (const m of modules) log += run(['-R', dir, '-o', join(out, m + '.olean'), join(dir, m + '.lean')], [out]);
-      log += run(['-R', dir, join(dir, 'Main.lean')], [out]);
+      log += run(['-R', dir, '-o', join(out, 'Main.olean'), join(dir, 'Main.lean')], [out]);
       if (/declaration uses `sorry`|error:/.test(log)) throw Object.assign(new Error('sorry or error'), { stdout: log });
       return modules.length ? `with ${modules.join(', ')}` : '';
     });
+    const contentModel = `test/ui/content-model/${name}.lean`;
+    if (checkerPath && existsSync(join(root, contentModel)) && existsSync(join(out, 'Main.olean')))
+      check(`examples/ui/${name} satisfies the content model (${contentModel})`, () => { run([contentModel], [out, ...checkerPath]); return ''; });
   }
   // The fullstack template: shared modules first (Lake's libraries), then both programs.
   check('templates/fullstack elaborates (its theorems included)', () => {

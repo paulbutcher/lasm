@@ -1,0 +1,13 @@
+name = "lasm-ui-check"
+version = "0.1.0"
+defaultTargets = ["LasmUICheck"]
+
+# Lasm.UI views checked against the HTML, SVG and MathML content models of
+# lean-html-model. Build with Lasm's Lean, whose library provides Lasm.UI.Html.
+[[require]]
+name = "html-model"
+git = "https://github.com/paulbutcher/lean-html-model"
+rev = "v0.4.1"
+
+[[lean_lib]]
+name = "LasmUICheck"
